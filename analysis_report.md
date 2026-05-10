@@ -24,7 +24,7 @@ We compared a baseline **Logistic Regression** model against a tuned **XGBoost E
 | **F1-Score** | 0.7111 | **0.7203** |
 | **Accuracy** | 0.6963 | 0.6916 |
 
-> [!TIP]
+> NOTE:
 > While Accuracy is similar, the **ROC-AUC of 0.80** for XGBoost indicates high robustness in distinguishing between startups that will be acquired versus those that will close.
 
 ---
@@ -32,7 +32,7 @@ We compared a baseline **Logistic Regression** model against a tuned **XGBoost E
 ### 4. Visualizing the Feature Space (PCA)
 Using Principal Component Analysis (PCA), we mapped the 34-dimensional feature space into 2D. 
 
-![PCA Scatter Plot](file:///Users/fawwaazsheik/codingggg/CS439_fp/pca_scatter.png)
+![PCA Scatter Plot](pca_scatter.png)
 *Figure 1: Test-set startups projected onto two principal components. While there is overlap, distinct clusters for "Acquired" (green) and "Closed" (red) emerge, validating that our feature set contains strong signal for classification.*
 
 ---
@@ -60,5 +60,5 @@ While relationships, funding rounds, and milestones are the strongest drivers, t
 ---
 
 ### 7. Performance Diagnostics
-![Confusion Matrices](file:///Users/fawwaazsheik/codingggg/CS439_fp/confusion_matrices.png)
+![Confusion Matrices](confusion_matrices.png)
 *Figure 3: Comparison of error types. Both models show a healthy balance, though XGBoost demonstrates higher precision in identifying successful acquisitions.*
