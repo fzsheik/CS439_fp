@@ -1,19 +1,15 @@
 """
 model_pipeline.py
-─────────────────────────────────────────────────────────────────────────────
 CS 439 Final Project — Startup Acquisition Prediction Pipeline
-
-Flow:
-  1. Load startup_data_final.csv  (+  re-attach funding year from raw CSV)
+  1. Load startup_data_final.csv 
   2. Time-based train/test split at 2010
-  3. StandardScaler on continuous cols only (fit on train, transform both)
+  3. StandardScaler on continuous cols only
   4. Model 1 — Logistic Regression (L2, class_weight='balanced')
   5. Model 2 — XGBoost (GridSearchCV, roc_auc, cv=5)
-  6. Evaluate both → Table 1 (metrics DataFrame)
-  7. SHAP analysis on XGBoost → Figure 1
-  8. PCA scatter on X_test      → Figure 2
+  6. Evaluate both => Table 1 
+  7. SHAP analysis on XGBoost => Figure 1
+  8. PCA scatter on X_test    => Figure 2
   9. Save all plots as PNG
-─────────────────────────────────────────────────────────────────────────────
 """
 
 import warnings
@@ -22,7 +18,7 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")          # headless backend — no display needed
+matplotlib.use("Agg")          
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -38,7 +34,6 @@ from sklearn.metrics import (
 from xgboost import XGBClassifier
 import shap
 
-# ─── Plot style ───────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "figure.dpi": 150,
     "axes.spines.top": False,
@@ -47,16 +42,13 @@ plt.rcParams.update({
 })
 COLORS = {"train": "#4C72B0", "test": "#DD8452", "pos": "#55A868", "neg": "#C44E52"}
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 1 — Load data and re-attach funding year
-# ═════════════════════════════════════════════════════════════════════════════
+# Load data and re-attach funding year
 print("=" * 60)
 print("STEP 1 — Loading data")
 print("=" * 60)
 
 df = pd.read_csv("startup_data_final.csv")
 
-# Re-attach first_funding_at from the original raw CSV (same row order, 923 rows)
 df_raw = pd.read_csv("startup data.csv")
 df_raw["first_funding_at"] = pd.to_datetime(df_raw["first_funding_at"], errors="coerce")
 df["funding_year"] = df_raw["first_funding_at"].dt.year.values
@@ -69,14 +61,11 @@ print(f"  Target balance: acquired={df['target'].sum()} "
 print(f"  Funding years : {int(df['funding_year'].min())} – "
       f"{int(df['funding_year'].max())}")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Time-based train / test split at 2010
-# ═════════════════════════════════════════════════════════════════════════════
+# Time-based train / test split at 2010
 print("\n" + "=" * 60)
 print("STEP 2 — Time-based train/test split (cutoff = 2010)")
 print("=" * 60)
 
-# Feature matrix: drop target and the helper column
 feature_cols = [c for c in df.columns if c not in ("target", "funding_year")]
 X = df[feature_cols]
 y = df["target"]
@@ -94,10 +83,7 @@ print(f"  Test  (≥ 2010): {len(X_test)} rows  "
       f"({100*len(X_test)/len(df):.1f}%)  "
       f"| positive rate: {y_test.mean():.2%}")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 3 — Selective StandardScaler
-#          Fit ONLY on X_train continuous columns
-# ═════════════════════════════════════════════════════════════════════════════
+# Selective StandardScaler
 print("\n" + "=" * 60)
 print("STEP 3 — Scaling continuous features")
 print("=" * 60)
@@ -109,41 +95,34 @@ CONTINUOUS_COLS = [
     "milestones", "funding_rounds",
     "fed_rate", "vix", "sector_trend",
 ]
-# Verify all continuous cols are in the feature matrix
 CONTINUOUS_COLS = [c for c in CONTINUOUS_COLS if c in X_train.columns]
 print(f"  Scaling {len(CONTINUOUS_COLS)} continuous cols: {CONTINUOUS_COLS}")
 
 scaler = StandardScaler()
 X_train[CONTINUOUS_COLS] = scaler.fit_transform(X_train[CONTINUOUS_COLS])
-X_test[CONTINUOUS_COLS]  = scaler.transform(X_test[CONTINUOUS_COLS])   # NO fit here — avoids leakage
+X_test[CONTINUOUS_COLS]  = scaler.transform(X_test[CONTINUOUS_COLS])  
 
 print("  ✓ Scaler fitted on train, transform applied to both splits")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 4 — Model 1: Logistic Regression (baseline)
-# ═════════════════════════════════════════════════════════════════════════════
+# Model 1: Logistic Regression 
 print("\n" + "=" * 60)
 print("STEP 4 — Logistic Regression (baseline)")
 print("=" * 60)
 
 lr = LogisticRegression(
     penalty="l2",
-    class_weight="balanced",   # handles 65/35 imbalance
+    class_weight="balanced",   
     max_iter=1000,
     random_state=42,
     solver="lbfgs",
 )
 lr.fit(X_train, y_train)
-print("  ✓ Logistic Regression trained")
+print("  Logistic Regression trained")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 5 — Model 2: XGBoost with GridSearchCV
-# ═════════════════════════════════════════════════════════════════════════════
+# Model 2: XGBoost with GridSearchCV
 print("\n" + "=" * 60)
 print("STEP 5 — XGBoost (GridSearchCV, cv=5, scoring=roc_auc)")
 print("=" * 60)
-
-# Class imbalance weight: closed / acquired ≈ 326/597 ≈ 0.546
 SPW = round(326 / 597, 3)
 print(f"  scale_pos_weight = {SPW}  (closes/acquired = 326/597)")
 
@@ -153,7 +132,6 @@ param_grid = {
     "learning_rate": [0.05, 0.1, 0.2],
     "subsample":     [0.8, 1.0],
 }
-# Total combos: 3×3×3×2 = 54 — manageable on 709 rows
 
 base_xgb = XGBClassifier(
     scale_pos_weight=SPW,
@@ -178,9 +156,7 @@ best_xgb = gs.best_estimator_
 print(f"  Best params  : {gs.best_params_}")
 print(f"  Best CV AUC  : {gs.best_score_:.4f}")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 6 — Evaluate both models on X_test
-# ═════════════════════════════════════════════════════════════════════════════
+# Evaluate both models on X_test
 print("\n" + "=" * 60)
 print("STEP 6 — Evaluation on X_test  →  Table 1")
 print("=" * 60)
@@ -201,16 +177,15 @@ results = pd.DataFrame([
 ])
 results = results.set_index("Model")
 
-print("\n  ── Table 1: Model Comparison ────────────────────")
+print("\n Table 1: Model Comparison ")
 print(results.to_string())
 
-# Detailed classification reports
 for model, name in [(lr, "Logistic Regression"), (best_xgb, "XGBoost")]:
     print(f"\n  {name} — Classification Report:")
     print(classification_report(y_test, model.predict(X_test),
                                 target_names=["Closed", "Acquired"]))
 
-# ─── Confusion Matrix Plot ────────────────────────────────────────────────────
+# Confusion Matrix Plot 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 fig.suptitle("Confusion Matrices — Test Set", fontsize=14, fontweight="bold", y=1.01)
 
@@ -227,9 +202,9 @@ for ax, (model, name) in zip(axes, [(lr, "Logistic Regression"), (best_xgb, "XGB
 plt.tight_layout()
 plt.savefig("confusion_matrices.png", bbox_inches="tight")
 plt.close()
-print("\n  ✓ Saved → confusion_matrices.png")
+print("\n  Saved => confusion_matrices.png")
 
-# ─── Metrics Bar Chart ───────────────────────────────────────────────────────
+# Metrics Bar Chart
 fig, ax = plt.subplots(figsize=(8, 4))
 results.T.plot(kind="bar", ax=ax, color=[COLORS["train"], COLORS["test"]],
                edgecolor="white", linewidth=0.8, rot=0, width=0.6)
@@ -245,11 +220,9 @@ for bar in ax.patches:
 plt.tight_layout()
 plt.savefig("model_comparison.png", bbox_inches="tight")
 plt.close()
-print("  ✓ Saved → model_comparison.png")
+print(" Saved => model_comparison.png")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 7 — SHAP Analysis on XGBoost  →  Figure 1
-# ═════════════════════════════════════════════════════════════════════════════
+# SHAP Analysis on XGBoost =>  Figure 1
 print("\n" + "=" * 60)
 print("STEP 7 — SHAP Analysis (XGBoost)  →  Figure 1")
 print("=" * 60)
@@ -257,7 +230,7 @@ print("=" * 60)
 explainer   = shap.TreeExplainer(best_xgb)
 shap_values = explainer.shap_values(X_test)
 
-# ─── Figure 1a: Beeswarm summary plot ───────────────────────────────────────
+# Figure 1a: Beeswarm summary plot 
 print("  Generating beeswarm summary plot …")
 fig, ax = plt.subplots(figsize=(10, 7))
 shap.summary_plot(
@@ -271,9 +244,9 @@ plt.title("Figure 1 — SHAP Feature Importance (XGBoost, Test Set)",
 plt.tight_layout()
 plt.savefig("shap_beeswarm.png", bbox_inches="tight")
 plt.close()
-print("  ✓ Saved → shap_beeswarm.png")
+print(" Saved => shap_beeswarm.png")
 
-# ─── Figure 1b: Bar chart (mean |SHAP|) ─────────────────────────────────────
+# Figure 1b: Bar chart 
 print("  Generating SHAP bar chart …")
 mean_abs_shap = pd.Series(
     np.abs(shap_values).mean(axis=0),
@@ -297,7 +270,6 @@ ax.set_xlabel("Mean |SHAP Value|", fontsize=11)
 ax.set_title(f"Top {top_n} Features by Mean |SHAP| — XGBoost",
              fontsize=13, fontweight="bold")
 
-# Annotate macro features
 macro_feats = {"fed_rate", "vix", "sector_trend"}
 for bar, feat in zip(bars[::-1], mean_abs_shap.head(top_n).index):
     if feat in macro_feats:
@@ -315,19 +287,16 @@ ax.legend(handles=legend_elements, loc="lower right", frameon=False, fontsize=9)
 plt.tight_layout()
 plt.savefig("shap_bar.png", bbox_inches="tight")
 plt.close()
-print("  ✓ Saved → shap_bar.png")
+print(" Saved => shap_bar.png")
 
-# ─── Report macro feature ranks ──────────────────────────────────────────────
 ranking = mean_abs_shap.rank(ascending=False).astype(int)
-print("\n  Macro signal rankings (by mean |SHAP|):")
+print("\n  Macro signal rankings:")
 for feat in ["fed_rate", "vix", "sector_trend"]:
     if feat in ranking:
         print(f"    {feat:15s} → rank #{ranking[feat]}  "
               f"(mean |SHAP| = {mean_abs_shap[feat]:.4f})")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 8 — PCA Visualization on X_test  →  Figure 2
-# ═════════════════════════════════════════════════════════════════════════════
+# PCA Visualization on X_test  =>  Figure 2
 print("\n" + "=" * 60)
 print("STEP 8 — PCA (2D) scatter on X_test  →  Figure 2")
 print("=" * 60)
@@ -361,11 +330,9 @@ ax.legend(frameon=False, fontsize=10)
 plt.tight_layout()
 plt.savefig("pca_scatter.png", bbox_inches="tight")
 plt.close()
-print("  ✓ Saved → pca_scatter.png")
+print(" Saved => pca_scatter.png")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# FINAL SUMMARY
-# ═════════════════════════════════════════════════════════════════════════════
+# SUMMARY
 print("\n" + "=" * 60)
 print("PIPELINE COMPLETE — Summary")
 print("=" * 60)
@@ -380,5 +347,5 @@ print("    pca_scatter.png         — Figure 2: PCA scatter")
 print("\n  Key finding:")
 for feat in ["fed_rate", "vix", "sector_trend"]:
     if feat in ranking:
-        print(f"    {feat} → SHAP rank #{ranking[feat]}")
+        print(f"    {feat} => SHAP rank #{ranking[feat]}")
 print()
