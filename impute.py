@@ -2,12 +2,9 @@ import pandas as pd
 import numpy as np
 
 df = pd.read_csv('startup_data_clean.csv')
-
-# Drop identifier columns
 df = df.drop(columns=['name', 'city', 'state_code', 'zip_code',
                        'latitude', 'longitude', 'category_code'])
 
-# Helper: impute by category group, fall back to global if group is all null
 def group_impute(df, col, group_col, method='median'):
     def impute_group(group):
         if method == 'median':
@@ -20,8 +17,6 @@ def group_impute(df, col, group_col, method='median'):
         return group[col].fillna(fill)
     return df.groupby(group_col, group_keys=False).apply(impute_group)
 
-# Build a single category column to group by
-# Use whichever is_X flag is 1, else 'other'
 category_cols = ['is_software','is_web','is_mobile','is_enterprise',
                  'is_advertising','is_gamesvideo','is_ecommerce',
                  'is_biotech','is_consulting','is_othercategory']
@@ -37,17 +32,14 @@ df['_category'] = df.apply(get_category, axis=1)
 print("Nulls before imputation:")
 print(df.isnull().sum()[df.isnull().sum() > 0])
 
-# Impute milestone years by category using median (skewed distributions)
 df['age_first_milestone_year'] = group_impute(df, 'age_first_milestone_year',
                                                '_category', method='median')
 df['age_last_milestone_year']  = group_impute(df, 'age_last_milestone_year',
                                                '_category', method='median')
 
-# Impute sector_trend by category using mean (symmetric 0-100 index)
 df['sector_trend'] = group_impute(df, 'sector_trend',
                                    '_category', method='mean')
 
-# Drop temp column
 df = df.drop(columns=['_category'])
 
 # Verify
@@ -58,4 +50,4 @@ print("\nSample stats:")
 print(df[['age_first_milestone_year', 'age_last_milestone_year', 'sector_trend']].describe().round(3))
 
 df.to_csv('startup_data_final.csv', index=False)
-print("\n✅  Saved → startup_data_final.csv")
+print("\n  Saved → startup_data_final.csv")
