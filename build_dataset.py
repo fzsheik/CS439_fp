@@ -1,10 +1,9 @@
 """
 build_dataset.py
-────────────────────────────────────────────────────────────────────────────
-Builds the enriched startup dataset:
-  • FRED macro signals  — Fed Funds rate + VIX (via REST, avoids fredapi SSL bug)
-  • Google Trends       — keywords/timeframe confirmed working in notebook
-  • Binary target       — acquired=1, closed=0
+Builds the startup dataset:
+FRED macro signals  — Fed Funds rate + VIX 
+Google Trends       — keywords/timeframe confirmed working in notebook
+Binary target       — acquired=1, closed=0
 """
 
 import time
@@ -12,12 +11,11 @@ import requests
 import pandas as pd
 from pytrends.request import TrendReq
 
-# ── Config ────────────────────────────────────────────────────────────────────
 FRED_API_KEY = "2edd2c4189fa06c8416a925b6bfa5464"
 INPUT_CSV    = "startup data.csv"
 OUTPUT_CSV   = "startup_data_clean.csv"
 
-# ── FRED helper (direct REST — avoids fredapi SSL issues on macOS 3.9) ────────
+# FRED helper 
 def fred_get(series_id: str, start: str, end: str) -> pd.Series:
     url = (
         f"https://api.stlouisfed.org/fred/series/observations"
@@ -33,9 +31,8 @@ def fred_get(series_id: str, start: str, end: str) -> pd.Series:
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df.set_index("date")["value"]
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 1  —  Load & clean startup data
-# ═════════════════════════════════════════════════════════════════════════════
+
+# Load & clean startup data
 print("═" * 60)
 print("STEP 1 — Loading startup data")
 print("═" * 60)
@@ -45,9 +42,9 @@ print(f"  Raw shape: {df.shape}")
 
 df = df.drop(columns=[
     "Unnamed: 0", "Unnamed: 6",
-    "closed_at",      # leakage
+    "closed_at",     
     "id", "object_id",
-    "state_code.1",   # duplicate
+    "state_code.1",   
 ], errors="ignore")
 
 df["target"] = (df["status"] == "acquired").astype(int)
@@ -62,21 +59,18 @@ print(f"  Closed        : {(df['target']==0).sum()}")
 print(f"  Date range    : {df['first_funding_at'].min().date()} → "
       f"{df['first_funding_at'].max().date()}")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 2  —  FRED macro signals
-# ═════════════════════════════════════════════════════════════════════════════
+# FRED macro signals
 print("\n" + "═" * 60)
 print("STEP 2 — Fetching FRED macro data")
 print("═" * 60)
 
-# Fed Funds Rate — monthly, no resample needed
+# Fed Funds Rate — monthly
 fed = fred_get("FEDFUNDS", "2000-01-01", "2013-12-31").reset_index()
 fed.columns      = ["date", "fed_rate"]
 fed["funding_month"] = pd.to_datetime(fed["date"]).dt.to_period("M")
 print(f"  Fed Funds : {len(fed)} months  "
       f"[{fed['fed_rate'].min():.2f}% – {fed['fed_rate'].max():.2f}%]")
 
-# CBOE VIX — daily → monthly mean
 vix = (
     fred_get("VIXCLS", "2000-01-01", "2013-12-31")
     .resample("MS").mean()
@@ -87,14 +81,11 @@ vix["funding_month"] = pd.to_datetime(vix["date"]).dt.to_period("M")
 print(f"  VIX       : {len(vix)} months  "
       f"[{vix['vix'].min():.1f} – {vix['vix'].max():.1f}]")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 3  —  Google Trends sector signals
-# ═════════════════════════════════════════════════════════════════════════════
+# Google Trends sector signals
 print("\n" + "═" * 60)
 print("STEP 3 — Fetching Google Trends (~30 s)")
 print("═" * 60)
 
-# Keywords & timeframe confirmed working in preproccessing.ipynb
 KEYWORDS  = ["fintech", "SaaS", "biotech", "AI", "ecommerce"]
 TIMEFRAME = "2005-01-01 2014-12-31"
 
@@ -107,7 +98,6 @@ trends_raw["funding_month"] = pd.to_datetime(trends_raw["date"]).dt.to_period("M
 print(f"  Trends: {len(trends_raw)} months  "
       f"({trends_raw['date'].min().date()} → {trends_raw['date'].max().date()})")
 
-# Sector → keyword mapping (aligned with notebook categories)
 SECTOR_MAP = [
     ("is_biotech",    "biotech"),
     ("is_ecommerce",  "ecommerce"),
@@ -121,51 +111,45 @@ SECTOR_MAP = [
 def get_trend_score(row):
     match = trends_raw[trends_raw["funding_month"] == row["funding_month"]]
     if match.empty:
-        return None          # pre-2005 or gap → NaN
+        return None        
     m = match.iloc[0]
     for col, kw in SECTOR_MAP:
         if row.get(col, 0) == 1:
             return float(m[kw])
-    return float(m[KEYWORDS].mean())   # fallback: all-keyword mean
+    return float(m[KEYWORDS].mean())   
 
 df["sector_trend"] = df.apply(get_trend_score, axis=1)
 covered = df["sector_trend"].notna().sum()
 print(f"  Coverage: {covered}/{len(df)} rows ({100*covered/len(df):.1f}%) "
       f"— rows before 2005 get NaN")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# STEP 4  —  Merge & finalize
-# ═════════════════════════════════════════════════════════════════════════════
+# Merge & finalize
 print("\n" + "═" * 60)
 print("STEP 4 — Merging + saving")
 print("═" * 60)
 
 df = df.merge(fed[["funding_month", "fed_rate"]], on="funding_month", how="left")
 df = df.merge(vix[["funding_month", "vix"]],      on="funding_month", how="left")
-
-# Drop date columns no longer needed
 df = df.drop(columns=[c for c in
     ["first_funding_at", "last_funding_at", "founded_at", "funding_month"]
     if c in df.columns])
 
 df.to_csv(OUTPUT_CSV, index=False)
 
-# ═════════════════════════════════════════════════════════════════════════════
 # REPORT
-# ═════════════════════════════════════════════════════════════════════════════
-print(f"\n✅  Saved → {OUTPUT_CSV}   ({df.shape[0]} rows × {df.shape[1]} cols)")
+print(f"\n Saved  {OUTPUT_CSV}   ({df.shape[0]} rows × {df.shape[1]} cols)")
 print(f"\nAll columns:\n  {df.columns.tolist()}")
 
-print("\n── New feature statistics ──────────────────────────────────")
+print("\n New feature statistics ")
 print(df[["fed_rate", "vix", "sector_trend"]].describe().round(3).to_string())
 
-print("\n── Missing values ──────────────────────────────────────────")
+print("\n Missing values ")
 print(df[["fed_rate", "vix", "sector_trend"]].isnull().sum().to_string())
 
-print("\n── Target split ────────────────────────────────────────────")
+print("\n Target split ")
 vc = df["target"].value_counts()
 print(f"  acquired (1): {vc[1]}  ({100*vc[1]/len(df):.1f}%)")
 print(f"  closed   (0): {vc[0]}  ({100*vc[0]/len(df):.1f}%)")
 
-print("\n── Sample (first 15 rows, new columns only) ────────────────")
+print("\n Sample")
 print(df[["fed_rate", "vix", "sector_trend", "target"]].head(15).to_string())
